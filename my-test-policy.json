@@ -1,0 +1,33 @@
+{
+    "policy": {
+      "fullName": {
+        "name": "my-test-policy"
+      },
+      "spec": {
+        "type": "custom-policy",
+        "recipe": "tmc-require-labels",
+        "recipeVersion": "v1",
+        "input": {
+          "audit": true,
+          "parameters": {
+            "labels": [
+              {
+                "key": "app",
+                "value": ""
+              }
+            ]
+          },
+          "targetKubernetesResources": [
+            {
+              "apiGroups": [
+                ""
+              ],
+              "kinds": [
+                "Deployment"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
