@@ -38,11 +38,10 @@ def call_event_stream_api():
             stream=True
         )
         for line in response.iter_lines():
-            print (line)
-# There's a mysterious `b` at the beginning of each line.
-# Line is in JSON format. Need to format or parse line.
-# kdr            print (line.json())
-# kdr            print (json.dumps(line, indent=4))
+            data = json.loads(line)
+            s = json.dumps(data, indent=4, sort_keys=True)
+            print(s)
+
     except:
         return
 
