@@ -1,53 +1,30 @@
 #!/bin/bash
-PWD=`pwd`
-SCRIPT_DIR=`dirname "$0"`
 
-# saner programming env: these switches turn some bugs into errors
-#kdr set -o errexit -o pipefail -o noclobber -o nounset
-! getopt --test > /dev/null 
-if [[ ${PIPESTATUS[0]} -ne 4 ]]; then
-    echo "I’m sorry, `getopt --test` failed in this environment."
-    exit 1
-fi
+# This script deletes a policy
 
-OPTIONS=ac:hpt:u:
-LONGOPTS=approve,cluster-group:,help,policy:,api-token:,tmc-url:
-
-# -use ! and PIPESTATUS to get exit code with errexit set
-# -temporarily store output to be able to check for errors
-# -activate quoting/enhanced mode (e.g. by writing out “--options”)
-# -pass arguments only via   -- "$@"   to separate them correctly
-! PARSED=$(getopt --options=$OPTIONS --longoptions=$LONGOPTS --name "$0" -- "$@")
-if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
-    # e.g. return value is 1
-    #  then getopt has complained about wrong arguments to stdout
-    exit 2
-fi
-# read getopt’s output this way to handle the quoting right:
-eval set -- "$PARSED"
-
-# now enjoy the options in order and nicely split until we see --
-a=n
-while true; do
+# Parse the arguments...
+GETOPTS=true
+DRY_RUN=false
+while [[ $GETOPTS == true ]]; do
     case "$1" in
-        -a|--approve)
-            a=y
-            shift 1
-            ;;
         -c|--cluster-group)
-            c="$2"
+            CLUSTER_GROUP="$2"
             shift 2
             ;;
+        -d|--dry-run)
+            DRY_RUN=true
+            shift 1
+            ;;
         -p|--policy)
-            p="$2"
+            POLICY_NAME="$2"
             shift 2
             ;;
         -t|--api-token)
-            t="$2"
+            API_TOKEN="$2"
             shift 2
             ;;
         -u|--tmc-url)
-            u="$2"
+            API_ENDPOINT="$2"
             shift 2
             ;;
         -h|--help)
@@ -56,44 +33,38 @@ while true; do
             echo ""
             echo "Command line options for $0:"
             echo "  -c, --cluster-group <my-cluster-group>       Name of the cluster group to query for policies"
-            echo "  -f, --policy <my-policy>                     Name of the policy to delete"
+            echo "  -d, --dry-run                                Just view what would be done. Don't delete the policy."
+            echo "  -p, --policy <my-policy>                     Name of the policy to delete"
             echo "  -u, --tmc-url <example.tmc.cloud.vmware.com> TMC URL"
             echo "  -t, --api-token <123-abc-456-def>            API token for accessing CSP"
-            echo "  -a, --approve          Don't prompt for approval to proceed"
             echo "  -h, --help    Help"
             echo ""
             exit
             ;;
-        --)
-            shift
-            break
-            ;;
         *)
-            echo "Programming error"
+            echo "Invalid argument. Please use $0 -h to view the argument list."
             exit 3
             ;;
     esac
+    if [[ -z $1 ]]; then
+        GETOPTS=false
+    fi
 done
-
-export API_ENDPOINT=$u
-export API_TOKEN=$t
-export CLUSTER_GROUP=$c
-export POLICY_NAME=$p
 
 # Find the CSP endpoint
 CSP_ENDPOINT=https://console.cloud.vmware.com
  
 # Aquire access token from CSP
-CSP_ACCESS_TOKEN=$(curl -sSX POST ${CSP_ENDPOINT}/csp/gateway/am/api/auth/api-tokens/authorize\?refresh_token\=${API_TOKEN} | jq -r .access_token)
+CSP_ACCESS_TOKEN=$(curl -kX POST ${CSP_ENDPOINT}/csp/gateway/am/api/auth/api-tokens/authorize\?refresh_token\=${API_TOKEN} 2>/dev/null | jq -r .access_token)
 
 # Get policy
 echo "Policy $POLICY_NAME"
-curl -sSX GET -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${API_ENDPOINT}/v1alpha1/clustergroups/${CLUSTER_GROUP}/policies/${POLICY_NAME}" | jq .
+curl -ksSX GET -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${API_ENDPOINT}/v1alpha1/clustergroups/${CLUSTER_GROUP}/policies/${POLICY_NAME}" | jq .
 
 # Delete the policy
-if [ $a == y ]; then
-    echo "Deleting policy ${POLICY_NAME} in cluster group ${CLUSTER_GROUP}."
+if [ $DRY_RUN == true ]; then
+    echo "The policy \"${POLICY_NAME}\" in cluster group \"${CLUSTER_GROUP}\" would be deleted but --dry-run was specified in the command."
 else
-    read -p "Press [ENTER] key to delete policy ${POLICY_NAME} in cluster group ${CLUSTER_GROUP}."
+    echo "Deleting policy \"${POLICY_NAME}\" in cluster group \"${CLUSTER_GROUP}\"."
+    curl -ks -X DELETE -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${API_ENDPOINT}/v1alpha1/clustergroups/${CLUSTER_GROUP}/policies/${POLICY_NAME}" | jq .
 fi
-curl -s -X DELETE -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${API_ENDPOINT}/v1alpha1/clustergroups/${CLUSTER_GROUP}/policies/${POLICY_NAME}" | jq .
