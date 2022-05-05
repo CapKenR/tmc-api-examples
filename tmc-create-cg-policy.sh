@@ -70,11 +70,11 @@ while [[ $GETOPTS == true ]]; do
             echo "  -t, --api-token <123-abc-456-def>            API token for accessing CSP"
             echo "  -h, --help    Help"
             echo ""
-            exit
+            exit 0
             ;;
         *)
             echo "Invalid arguments. Please use $0 --help to view the valid arguments."
-            exit 3
+            exit 1
             ;;
     esac
     if [[ -z $1 ]];then
@@ -85,7 +85,7 @@ done
 # Check for file existence
 if [[ ! -f $POLICY_FILE ]]; then
     echo "The policy file $POLICY_FILE not found."
-    exit 4
+    exit 2
 fi
 
 # Acquire access token from CSP
@@ -93,7 +93,7 @@ CSP_ACCESS_TOKEN=$(curl -ksSX POST ${CSP_ENDPOINT}/csp/gateway/am/api/auth/api-t
 
 if [[ -z $CSP_ACCESS_TOKEN ]]; then
     echo Access Token not received.
-    exit 2
+    exit 3
 else
     echo Access Token received.
 fi
@@ -107,14 +107,17 @@ echo "Policy: $POLICY_NAME"
 # Check to see if the policy is already in TMC...
 POLICY_MISSING=false
 POLICY_DETAILS=$(curl -sk GET -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${API_ENDPOINT}/v1alpha1/clustergroups/${CLUSTER_GROUP}/policies/${POLICY_NAME}" 2>/dev/null)
-echo $POLICY_DETAILS | grep -q '"error":"failed'
+if [[ $VERBOSE == true ]]; then
+    echo "$POLICY_DETAILS" | jq .
+fi
+echo $POLICY_DETAILS | grep -Eq '"error":\s*"'
 if [[ $? -ne 0 ]]; then
     POLICY_MISSING=true
     if [[ $OVERWRITE == true ]]; then
         echo "Policy ${name} already exists but will be overwritten."
     else
         echo "Policy ${name} already exists. If you want to overwrite this policy, include the -o flag."
-        exit 0
+        exit 4
     fi
 fi
 
@@ -153,9 +156,12 @@ POLICYTEMPLATES=$(echo $RECIPE_DETAILS | jq -c '.recipe.spec.policyTemplates')
             else
                 # Does this template exist in TMC?
                 TEMPLATE_DETAILS=$(curl -ks GET -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${API_ENDPOINT}/v1alpha1/policy/templates/${TEMPLATE_NAME}?orgId=${ORGID}" 2>/dev/null)
+                if [[ $VERBOSE == true ]]; then
+                    echo "$TEMPLATE_DETAILS" | jq .
+                fi
                 CREATE_TEMPLATE=false
                 TEMPLATE_MISSING=false
-                echo $TEMPLATE_DETAILS | grep -q '"error":"NotFound"'
+                echo $TEMPLATE_DETAILS | grep -Eq '"error":\s*"'
                 if [[ $? -eq 0 ]]; then
                     echo Template missing. Creating $TEMPLATE_FILE template...
                     TEMPLATE_MISSING=true
@@ -180,10 +186,15 @@ POLICYTEMPLATES=$(echo $RECIPE_DETAILS | jq -c '.recipe.spec.policyTemplates')
                         echo "Creating template $TEMPLATE_NAME..."
                         OUTPUT=$(curl -ks -d @${TRIMMED_TEMPLATE_FILE} -H "Content-Type: application/json" -X POST -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${API_ENDPOINT}/v1alpha1/policy/templates")
                     fi
-                    if [[ $VERBOSE == true ]]; then
+                    echo $OUTPUT | grep -Eq '"error":\s*"'
+                    if [[ $? -eq 0 ]]; then
+                        echo "An error occured as shown here but will proceed."
                         echo "$OUTPUT" | jq .
+                    else
+                        if [[ $VERBOSE == true ]]; then
+                            echo "$OUTPUT" | jq .
+                        fi
                     fi
-
                     # echo "See the template file (trimmed) at $TRIMMED_TEMPLATE_FILE that was sent to create the template."
                     rm $TRIMMED_TEMPLATE_FILE
                 fi
@@ -204,6 +215,13 @@ else
     else
         echo "Creating policy $POLICY_NAME..."
         OUTPUT=$(curl -ks -d @${TRIMMED_POLICY_FILE} -H "Content-Type: application/json" -X POST -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${API_ENDPOINT}/v1alpha1/clustergroups/${CLUSTER_GROUP}/policies")
+    fi
+
+    echo $OUTPUT | grep -Eq '"error":\s*"'
+        if [[ $? -eq 0 ]]; then
+        echo "An error occured."
+        echo $OUTPUT | jq .
+        exit 7
     fi
 
     if [[ $VERBOSE == true ]]; then
