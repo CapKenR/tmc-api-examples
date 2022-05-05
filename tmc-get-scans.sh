@@ -79,7 +79,19 @@ SCANS_JSON=$(curl -sSX GET -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${API
 echo Scans
 echo ${SCANS_JSON} | jq .
 
-#kdr SCAN_NAME=0d097a45-ddf6-4fe7-a829-42130dd6ff96
-#kdr SCAN_JSON=$(curl -sSX GET -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${API_ENDPOINT}/v1alpha1/clusters/${CLUSTER_NAME}/inspection/scans/${SCAN_NAME}")
-#kdr echo Scan ${SCAN_NAME}
-#kdr echo ${SCAN_JSON} | jq .
+MANAGEMENT_CLUSTER_NAME=$(echo ${SCANS_JSON} | jq -r '.scans[0].fullName.managementClusterName')
+PROVISIONER_NAME=$(echo ${SCANS_JSON} | jq -r '.scans[0].fullName.provisionerName')
+SCAN_NAME=$(echo ${SCANS_JSON} | jq -r '.scans[0].fullName.name')
+
+SCAN_JSON=$(curl -sSX GET -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${API_ENDPOINT}/v1alpha1/clusters/${CLUSTER_NAME}/inspection/scans/${SCAN_NAME}?fullName.managementClusterName=${MANAGEMENT_CLUSTER_NAME}&fullName.provisionerName=${PROVISIONER_NAME}")
+echo Scan ${SCAN_NAME}
+echo ${SCAN_JSON} | jq .
+
+echo Failed Tests
+echo ${SCAN_JSON} | jq -r '.scan.status.report.results.failed_tests' | jq .
+echo
+echo Warning Tests
+echo ${SCAN_JSON} | jq -r '.scan.status.report.results.warn_tests' | jq .
+echo
+echo Passed Tests
+echo ${SCAN_JSON} | jq -r '.scan.status.report.results.passed_tests' | jq .
