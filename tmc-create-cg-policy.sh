@@ -89,11 +89,19 @@ if [[ ! -f $POLICY_FILE ]]; then
 fi
 
 # Acquire access token from CSP
-CSP_ACCESS_TOKEN=$(curl -ksSX POST ${CSP_ENDPOINT}/csp/gateway/am/api/auth/api-tokens/authorize\?refresh_token\=${API_TOKEN} | jq -r .access_token)
+OUTPUT=$(curl -ksSX POST ${CSP_ENDPOINT}/csp/gateway/am/api/auth/api-tokens/authorize\?refresh_token\=${API_TOKEN})
+ERROR=$(echo $OUTPUT | jq '.statusCode')
+if [[ $ERROR != null ]]; then
+    echo "Unable to get the access token. Please check your user token."
+    echo "$OUTPUT"
+    exit 3
+fi
+CSP_ACCESS_TOKEN=$(echo "$OUTPUT" | jq -r .access_token)
+
 
 if [[ -z $CSP_ACCESS_TOKEN ]]; then
     echo Access Token not received.
-    exit 3
+    exit 4
 else
     echo Access Token received.
 fi
@@ -110,14 +118,21 @@ POLICY_DETAILS=$(curl -sk GET -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${
 if [[ $VERBOSE == true ]]; then
     echo "$POLICY_DETAILS" | jq .
 fi
-echo $POLICY_DETAILS | grep -Eq '"error":\s*"'
-if [[ $? -ne 0 ]]; then
+
+ERROR=$(echo $POLICY_DETAILS | jq '.error')
+if [[ $ERROR != null ]]; then
     POLICY_MISSING=true
+    if [[ $VERBOSE == true ]]; then
+        echo "$ERROR"
+    fi
+fi
+
+if [[ $POLICY_MISSING == false ]]; then
     if [[ $OVERWRITE == true ]]; then
         echo "Policy ${name} already exists but will be overwritten."
     else
         echo "Policy ${name} already exists. If you want to overwrite this policy, include the -o flag."
-        exit 4
+        exit 6
     fi
 fi
 
@@ -129,7 +144,7 @@ RECIPE_FILE=${PDIR}/recipe:${RECIPE_NAME}_${RECIPE_TYPE}.json
 # Check for file existence
 if [[ ! -f $RECIPE_FILE ]]; then
     echo "The recipe file $RECIPE_FILE on which this policy depends is not found."
-    exit 5
+    exit 7
 else
     RECIPE_DETAILS=$(cat $RECIPE_FILE)
     # Do I need to Check to see if recipe is already in TMC?
@@ -152,7 +167,7 @@ POLICYTEMPLATES=$(echo $RECIPE_DETAILS | jq -c '.recipe.spec.policyTemplates')
             # Check for file existence
             if [[ ! -f $TEMPLATE_FILE ]]; then
                 echo "The template file $TEMPLATE_FILE on which this policy depends is not found."
-                exit 6
+                exit 8
             else
                 # Does this template exist in TMC?
                 TEMPLATE_DETAILS=$(curl -ks GET -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${API_ENDPOINT}/v1alpha1/policy/templates/${TEMPLATE_NAME}?orgId=${ORGID}" 2>/dev/null)
@@ -162,7 +177,8 @@ POLICYTEMPLATES=$(echo $RECIPE_DETAILS | jq -c '.recipe.spec.policyTemplates')
                 CREATE_TEMPLATE=false
                 TEMPLATE_MISSING=false
                 echo $TEMPLATE_DETAILS | grep -Eq '"error":\s*"'
-                if [[ $? -eq 0 ]]; then
+                ERROR=$(echo $TEMPLATE_DETAILS | jq '.error')
+                if [[ $ERROR != null ]];then
                     echo Template missing. Creating $TEMPLATE_FILE template...
                     TEMPLATE_MISSING=true
                     CREATE_TEMPLATE=true
@@ -209,7 +225,7 @@ else
     TRIMMED_POLICY_FILE=/tmp/policy_file_$$.json
     jq 'del(.policy.meta)' $POLICY_FILE | jq 'del(.policy.fullName.orgId)' > $TRIMMED_POLICY_FILE
 
-    if [[ $POLICY_MISSING == true && $OVERWRITE == true ]]; then
+    if [[ $POLICY_MISSING == false && $OVERWRITE == true ]]; then
         echo "Updating policy $POLICY_NAME..."
         OUTPUT=$(curl -ks -d @${TRIMMED_POLICY_FILE} -H "Content-Type: application/json" -X PUT -H "Authorization: Bearer ${CSP_ACCESS_TOKEN}" "${API_ENDPOINT}/v1alpha1/clustergroups/${CLUSTER_GROUP}/policies/${POLICY_NAME}")
     else
@@ -221,7 +237,7 @@ else
         if [[ $? -eq 0 ]]; then
         echo "An error occured."
         echo $OUTPUT | jq .
-        exit 7
+        exit 9
     fi
 
     if [[ $VERBOSE == true ]]; then
